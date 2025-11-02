@@ -1,12 +1,47 @@
-# VIC Roster – Implementation Checklist for Robust First Delivery
+# VIC Roster — Implementation Checklist (OFFLINE-FIRST PWA REDESIGN)
 
-**Goal:** Systematically address robustness gaps to ensure production-ready implementation.  
-**Timeline:** 1–2 weeks  
-**Owner:** Next developer taking over from current handover
+**Goal:** Redesign from backend-dependent to offline-capable PWA with client-side solver.  
+**Timeline:** 8 weeks  
+**Owner:** Development team  
+**Status**: BLOCKING ON STAKEHOLDER DECISIONS
 
 ---
 
-## Phase 1: Critical (Days 1–2)
+## ⚠️ BLOCKING: Stakeholder Decisions Required ASAP
+
+Before any development starts, get answers to these:
+
+- [ ] **SOLVER CHOICE** (impacts Phase 2 schedule)
+  - [ ] OR-Tools WASM (recommended, powerful, complex)
+  - [ ] jsLPSolve (lightweight MVP, LP-only)
+  - [ ] Custom greedy (simple, may not be optimal)
+  - **Decision deadline**: ASAP
+  - **Owner**: Technical Lead
+
+- [ ] **FOUR FS RULES DEFINITION** (impacts Phase 2 design)
+  - [ ] Fair Distribution: Algorithm?
+  - [ ] Fatigue: Max consecutive shifts? Mandatory rest?
+  - [ ] Flexibility: How to weight preferences?
+  - [ ] Request Quotas: How enforced?
+  - **Decision deadline**: ASAP
+  - **Owner**: NUM/Clinical Lead
+
+- [ ] **HWS INTEGRATION SPEC** (impacts Phase 4)
+  - [ ] Sync format: CSV, JSON, REST API, real-time?
+  - [ ] Conflict resolution strategy: auto-merge, manual, server-wins?
+  - [ ] Data structure expectations?
+  - **Decision deadline**: Before Phase 4
+  - **Owner**: HWS Technical Lead
+
+- [ ] **BACKEND FUTURE** (impacts Phase 5)
+  - [ ] Delete entirely (Option A)
+  - [ ] Keep minimal sync service (Option B)
+  - **Decision deadline**: Before Phase 5
+  - **Owner**: Technical Lead
+
+---
+
+## Phase 1: Remove Backend Dependency (Weeks 1-2)
 
 ### Backend Input Validation
 - [ ] Create validation helper functions in `main.py`:
