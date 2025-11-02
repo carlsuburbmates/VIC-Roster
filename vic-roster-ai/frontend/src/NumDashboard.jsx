@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { fetchProfiles, generateRoster, exportRosterExcel } from './api';
+import { ErrorModal } from './ErrorModal';
 
 const ROLE_ORDER = ['ANUM', 'CNS', 'RN', 'EN', 'GNP'];
 const SHIFT_CODE_MAP = { AM: 'D', PM: 'E', ND: 'N' };
@@ -26,22 +28,36 @@ export default function NumDashboard() {
   const [profiles, setProfiles] = useState([]);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState(null);
 
   useEffect(() => {
-    fetch('http://localhost:8000/profiles').then(r => r.json()).then(setProfiles);
+    (async () => {
+      const res = await fetchProfiles();
+      if (res.ok) {
+        setProfiles(res.data);
+      } else {
+        setApiError(`Failed to load profiles: ${res.error}`);
+      }
+    })();
   }, []);
 
   const runAudit = async () => {
     setLoading(true);
-    try {
-      const res = await fetch('http://localhost:8000/generate-roster');
-      const data = await res.json();
-      setResult(data);
-    } catch (err) {
-      console.error('Run App.4 Audit failed:', err);
-      setResult({ status: 'error', message: 'Backend unreachable' });
+    const res = await generateRoster();
+    if (res.ok) {
+      setResult(res.data);
+    } else {
+      setApiError(res.error);
+      setResult({ status: 'error', message: res.error });
     }
     setLoading(false);
+  };
+
+  const handleExport = async () => {
+    const success = await exportRosterExcel();
+    if (!success) {
+      setApiError('Failed to export roster. Please check the backend.');
+    }
   };
 
   const dayMeta = useMemo(() => {
@@ -258,7 +274,7 @@ export default function NumDashboard() {
               <p style={styles.complianceNote}>100% EBA Compliant • Fairness checks passed • Fatigue review ready</p>
 
               <button
-                onClick={() => { window.location.href = 'http://localhost:8000/export-excel'; }}
+                onClick={handleExport}
                 style={styles.exportButton}
               >
                 Export SRF Roster Excel
@@ -275,6 +291,8 @@ export default function NumDashboard() {
           )}
         </div>
       )}
+
+      {apiError && <ErrorModal error={apiError} onClose={() => setApiError(null)} />}
     </div>
   );
 }

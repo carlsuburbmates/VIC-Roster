@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { submitProfile } from './api';
+import { ErrorModal, Toast } from './ErrorModal';
 import './App.css';
 
 function App() {
@@ -25,6 +27,8 @@ function App() {
   });
   const [errors, setErrors] = useState({});
   const [submitted, setSubmitted] = useState(false);
+  const [apiError, setApiError] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const validate = () => {
     const err = {};
@@ -55,12 +59,13 @@ function App() {
       preferencesQuota: parseInt(form.preferencesQuota, 10),
       maxNDs: form.maxNDs.toString(),
     };
-    const res = await fetch('http://localhost:8000/submit-profile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (res.ok) setSubmitted(true);
+    
+    const result = await submitProfile(payload);
+    if (result.ok) {
+      setSubmitted(true);
+    } else {
+      setApiError(result.error);
+    }
   };
 
   if (submitted) {
@@ -213,6 +218,9 @@ function App() {
       <footer style={styles.footer}>
         <p>OFFICIAL – Version 2, June 2025</p>
       </footer>
+
+      {apiError && <ErrorModal error={apiError} onClose={() => setApiError(null)} />}
+      {toast && <Toast message={toast} type="info" onClose={() => setToast(null)} />}
     </div>
   );
 

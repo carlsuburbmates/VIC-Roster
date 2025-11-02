@@ -121,6 +121,76 @@ def _int_to_bool(value) -> bool:
     return bool(value)
 
 
+def validate_fte(value: str) -> Tuple[bool, str]:
+    """Validate FTE is one of allowed values."""
+    valid_ftes = ["0.6", "0.8", "1.0"]
+    if value.strip() not in valid_ftes:
+        return False, f"FTE must be one of {valid_ftes}, got '{value}'"
+    return True, ""
+
+
+def validate_role(value: str) -> Tuple[bool, str]:
+    """Validate role is in ROLE_ORDER."""
+    upper_role = value.upper()
+    if upper_role not in ROLE_ORDER:
+        return False, f"Role must be one of {ROLE_ORDER}, got '{value}'"
+    return True, ""
+
+
+def validate_max_nds(value: str) -> Tuple[bool, str]:
+    """Validate maxNDs is 0-3 integer."""
+    try:
+        nd = int(value)
+        if nd < 0 or nd > 3:
+            return False, f"Max ND must be 0-3, got {nd}"
+        return True, ""
+    except ValueError:
+        return False, f"Max ND must be integer, got '{value}'"
+
+
+def validate_shift_pref(value: str) -> Tuple[bool, str]:
+    """Validate shift preference is AM, PM, or ND."""
+    if value not in SHIFTS:
+        return False, f"Shift preference must be one of {SHIFTS}, got '{value}'"
+    return True, ""
+
+
+def validate_lock_format(value: str) -> Tuple[bool, str, int]:
+    """Parse lock format 'DD MMM' and return (valid, error_msg, day_number)."""
+    if not value or not value.strip():
+        return True, "", -1  # Empty is OK
+    
+    try:
+        # Expected format: "15 Nov" → extract day number
+        parts = value.strip().split()
+        if len(parts) < 1:
+            return False, "Lock format must be 'DD MMM' (e.g., '15 Nov')", -1
+        
+        day = int(parts[0])
+        if day < 1 or day > DAYS:
+            return False, f"Lock day must be 1-{DAYS}, got {day}", -1
+        
+        return True, "", day
+    except ValueError:
+        return False, "Lock day must be numeric (e.g., '15 Nov')", -1
+
+
+def validate_name(value: str) -> Tuple[bool, str]:
+    """Validate name is not empty."""
+    if not value or not value.strip():
+        return False, "Name is required"
+    return True, ""
+
+
+def validate_email(value: str) -> Tuple[bool, str]:
+    """Validate email format."""
+    if not value or "@" not in value:
+        return False, "Valid email is required"
+    if len(value) < 5:
+        return False, "Email too short"
+    return True, ""
+
+
 def fetch_profiles() -> List[Dict]:
     cur = conn.execute(
         """
@@ -265,8 +335,55 @@ def _compute_analytics(matrix: Dict[str, List[str]], profiles: Dict[str, Dict]) 
 
 @app.post("/submit-profile")
 def submit_profile(profile: Profile):
+    # Validation step 1: Right to Disconnect acknowledgement
     if not profile.rightToDisconnectAck:
         raise HTTPException(status_code=400, detail="Right to Disconnect acknowledgement is required.")
+    
+    # Validation step 2: Name
+    valid, error_msg = validate_name(profile.name)
+    if not valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+    
+    # Validation step 3: Email
+    valid, error_msg = validate_email(profile.email)
+    if not valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+    
+    # Validation step 4: Role
+    valid, error_msg = validate_role(profile.role)
+    if not valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+    
+    # Validation step 5: FTE
+    valid, error_msg = validate_fte(profile.fte)
+    if not valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+    
+    # Validation step 6: Shift preference
+    valid, error_msg = validate_shift_pref(profile.shiftPref)
+    if not valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+    
+    # Validation step 7: Max ND
+    valid, error_msg = validate_max_nds(profile.maxNDs)
+    if not valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+    
+    # Validation step 8: Soft lock format
+    valid, error_msg, _ = validate_lock_format(profile.softLock)
+    if not valid:
+        raise HTTPException(status_code=400, detail=f"Soft lock: {error_msg}")
+    
+    # Validation step 9: Hard lock format
+    valid, error_msg, _ = validate_lock_format(profile.hardLock)
+    if not valid:
+        raise HTTPException(status_code=400, detail=f"Hard lock: {error_msg}")
+    
+    # Validation step 10: Request/preference quotas
+    if profile.requestsQuota < 0 or profile.requestsQuota > 4:
+        raise HTTPException(status_code=400, detail="Requests quota must be 0-4")
+    if profile.preferencesQuota < 0 or profile.preferencesQuota > 4:
+        raise HTTPException(status_code=400, detail="Preferences quota must be 0-4")
 
     try:
         conn.execute(
@@ -280,8 +397,8 @@ def submit_profile(profile: Profile):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                profile.name,
-                profile.email,
+                profile.name.strip(),
+                profile.email.strip(),
                 profile.role.upper(),
                 profile.fte,
                 profile.shiftPref,
@@ -305,6 +422,8 @@ def submit_profile(profile: Profile):
         return {"status": "success"}
     except sqlite3.IntegrityError:
         raise HTTPException(400, "Email already submitted")
+    except Exception as e:
+        raise HTTPException(500, f"Database error: {str(e)}")
 
 
 @app.get("/profiles")
@@ -423,12 +542,20 @@ def export_excel():
     matrix = _build_roster_matrix(roster, staff_names)
 
     shift_fill = {
-        "D": PatternFill("solid", fgColor="FFFFFF"),
-        "E": PatternFill("solid", fgColor="FFED9E"),
-        "N": PatternFill("solid", fgColor="2E7D32"),
-        "OFF": PatternFill("solid", fgColor="E9ECEF"),
+        "D": PatternFill("solid", fgColor="FFE4B5"),    # Day: Moccasin (warm orange)
+        "E": PatternFill("solid", fgColor="FFED9E"),    # Evening: Light yellow
+        "N": PatternFill("solid", fgColor="2E7D32"),    # Night: Deep green
+        "OFF": PatternFill("solid", fgColor="E9ECEF"),  # Off: Light gray
+    }
+    # Font colors for better contrast
+    shift_font = {
+        "D": Font(bold=True, color="1F1F1F"),           # Day: Dark text
+        "E": Font(bold=True, color="333333"),           # Evening: Dark gray text
+        "N": Font(bold=True, color="FFFFFF"),           # Night: White text
+        "OFF": Font(color="666666"),                    # Off: Gray text
     }
     thin = Side(border_style="thin", color="D0D0D0")
+    thick = Side(border_style="medium", color="000000")
     header_band = PatternFill("solid", fgColor="BBD0F7")
 
     workbook = Workbook()
@@ -527,10 +654,7 @@ def export_excel():
             cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
             fill = shift_fill.get(shift, shift_fill["OFF"])
             cell.fill = fill
-            if shift == "N":
-                cell.font = Font(color="FFFFFF", bold=True)
-            elif shift != "OFF":
-                cell.font = Font(bold=True)
+            cell.font = shift_font.get(shift, shift_font["OFF"])  # Apply appropriate font for shift type
 
     sheet_compliance = workbook.create_sheet("Compliance Summary")
     sheet_compliance.append(
@@ -568,6 +692,17 @@ def export_excel():
                 "; ".join(entry["notes"]) or "-",
             ]
         )
+
+    # Add footer with metadata
+    footer_row = max([row for row, name in enumerate(staff_names, start=6)]) + 2
+    sheet.merge_cells(f"A{footer_row}:Q{footer_row}")
+    footer_cell = sheet[f"A{footer_row}"]
+    footer_cell.value = (
+        f"Document ID: GDL-25994 | Generated: {datetime.now().strftime('%d/%m/%Y %H:%M')} | "
+        f"Compliant rosters: {sum(1 for a in analytics if a.get('compliant', True))}/{len(analytics)}"
+    )
+    footer_cell.alignment = Alignment(horizontal="center")
+    footer_cell.font = Font(size=9, color="666666", italic=True)
 
     workbook.save(EXPORT_PATH)
     return FileResponse(
