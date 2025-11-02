@@ -33,7 +33,7 @@ export default function NumDashboard() {
       </nav>
       <h1 style={styles.header}>NUM – Appendix 4 Audit</h1>
       <button onClick={runAudit} disabled={loading} style={styles.button}>
-        {loading ? 'Generating...' : 'Run App.4 Audit'}
+        {loading ? 'Generating...' : 'Generate Roster'}
       </button>
 
       <h2>Staff ({profiles.length})</h2>
