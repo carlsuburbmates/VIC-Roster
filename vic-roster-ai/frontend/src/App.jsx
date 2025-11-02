@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import './App.css';
 
 function App() {
@@ -45,6 +46,11 @@ function App() {
   }
   return (
     <div style={styles.container}>
+      <nav style={styles.nav}>
+        <Link to="/" style={styles.navLinkActive}>Staff Profile</Link>
+        <Link to="/num" style={styles.navLink}>NUM Dashboard</Link>
+        <Link to="/instructions" style={styles.navLink}>Instructions</Link>
+      </nav>
       <h1 style={styles.header}>Victorian Rostering Toolkit</h1>
       <h2 style={styles.sub}>Staff Preference Profile (Appendix 3)</h2>
       <p style={styles.deadline}>Submit by <strong>12 Nov 2025</strong></p>
@@ -101,6 +107,9 @@ function App() {
 
 const styles = {
   container: { fontFamily: 'Inter, sans-serif', maxWidth: 520, margin: '40px auto', padding: 24, background: '#F8F9FA', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' },
+  nav: { display: 'flex', gap: 16, marginBottom: 24, padding: '16px 0', borderBottom: '2px solid #E9ECEF' },
+  navLink: { color: '#004B87', textDecoration: 'none', fontWeight: 500, padding: '8px 16px', borderRadius: 4, transition: 'background 0.2s' },
+  navLinkActive: { color: 'white', background: '#004B87', textDecoration: 'none', fontWeight: 500, padding: '8px 16px', borderRadius: 4 },
   header: { color: '#004B87', fontSize: 28, marginBottom: 8, textAlign: 'center' },
   sub: { color: '#495057', fontSize: 16, marginBottom: 8, textAlign: 'center' },
   deadline: { color: '#E76F51', fontWeight: 'bold', textAlign: 'center', marginBottom: 24 },

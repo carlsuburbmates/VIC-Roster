@@ -3,6 +3,11 @@ import { Link } from 'react-router-dom';
 export default function Instructions() {
   return (
     <div style={styles.page}>
+      <nav style={styles.nav}>
+        <Link to="/" style={styles.navLink}>Staff Profile</Link>
+        <Link to="/num" style={styles.navLink}>NUM Dashboard</Link>
+        <Link to="/instructions" style={styles.navLinkActive}>Instructions</Link>
+      </nav>
       <div style={styles.cover}>
         <p style={styles.date}>June 2025</p>
         <h1 style={styles.title}>Victorian Rostering Toolkit</h1>
@@ -68,6 +73,9 @@ export default function Instructions() {
 
 const styles = {
   page: { fontFamily: 'Inter, sans-serif', maxWidth: 800, margin: '40px auto', padding: 32, background: 'white', lineHeight: 1.6 },
+  nav: { display: 'flex', gap: 16, marginBottom: 24, padding: '16px 0', borderBottom: '2px solid #E9ECEF' },
+  navLink: { color: '#004B87', textDecoration: 'none', fontWeight: 500, padding: '8px 16px', borderRadius: 4, transition: 'background 0.2s' },
+  navLinkActive: { color: 'white', background: '#004B87', textDecoration: 'none', fontWeight: 500, padding: '8px 16px', borderRadius: 4 },
   cover: { textAlign: 'center', marginBottom: 48 },
   date: { color: '#6C757D', fontSize: 14, marginBottom: 24 },
   title: { color: '#004B87', fontSize: 36, margin: '16px 0' },

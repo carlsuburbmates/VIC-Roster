@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 export default function NumDashboard() {
   const [profiles, setProfiles] = useState([]);
@@ -25,6 +26,11 @@ export default function NumDashboard() {
 
   return (
     <div style={styles.container}>
+      <nav style={styles.nav}>
+        <Link to="/" style={styles.navLink}>Staff Profile</Link>
+        <Link to="/num" style={styles.navLinkActive}>NUM Dashboard</Link>
+        <Link to="/instructions" style={styles.navLink}>Instructions</Link>
+      </nav>
       <h1 style={styles.header}>NUM – Appendix 4 Audit</h1>
       <button onClick={runAudit} disabled={loading} style={styles.button}>
         {loading ? 'Generating...' : 'Run App.4 Audit'}
@@ -85,6 +91,9 @@ export default function NumDashboard() {
 
 const styles = {
   container: { fontFamily: 'Inter, sans-serif', maxWidth: 960, margin: '40px auto', padding: 32, background: '#F8F9FA', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' },
+  nav: { display: 'flex', gap: 16, marginBottom: 24, padding: '16px 0', borderBottom: '2px solid #E9ECEF' },
+  navLink: { color: '#004B87', textDecoration: 'none', fontWeight: 500, padding: '8px 16px', borderRadius: 4, transition: 'background 0.2s' },
+  navLinkActive: { color: 'white', background: '#004B87', textDecoration: 'none', fontWeight: 500, padding: '8px 16px', borderRadius: 4 },
   header: { color: '#004B87', fontSize: 28, marginBottom: 16, textAlign: 'center' },
   button: { background: '#004B87', color: 'white', padding: 14, border: 'none', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer', width: '100%', marginBottom: 24 },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 32 },
