@@ -1,0 +1,199 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                 VIC ROSTER — COMPLETE DOCUMENTATION PACKAGE                   ║
+║                          Ready for Developer Review                           ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+📍 START HERE (Quick Overview)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ SUMMARY_FOR_DEVELOPERS.md                                                    │
+│ • This package overview                                                      │
+│ • 4 Blocking decisions required                                              │
+│ • Quick start checklist                                                      │
+│ • Success criteria by week                                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+📘 ORIENTATION (10-15 min read)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ DEVELOPER_HANDOVER.md                                                        │
+│ • For new developers joining the project                                     │
+│ • ⚠️ 4 BLOCKING decisions before coding                                      │
+│ • Current vs target architecture                                             │
+│ • Phase 1 getting started                                                    │
+│ • Testing checklist                                                          │
+│ READ THIS SECOND ←─────────────────────────────────────────────────────────── │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+📗 COMPLETE REFERENCE (30-40 min read)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ PROJECT_SUMMARY.md                                                           │
+│ 10-part comprehensive project documentation:                                 │
+│ 1. Executive summary                                                         │
+│ 2. Current state (FastAPI + SQLite)                                          │
+│ 3. Target state (offline PWA)                                                │
+│ 4. All required modifications (detailed)                                     │
+│ 5. New file structure                                                        │
+│ 6. New dependencies                                                          │
+│ 7. Development workflow                                                      │
+│ 8. Migration path (7 phases)                                                 │
+│ 9. Questions & decisions                                                     │
+│ 10. Risks & success criteria                                                 │
+│                                                                              │
+│ USE AS: Reference when you need the "why" and "what"                         │
+│ READ THIS THIRD ←──────────────────────────────────────────────────────────── │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+📙 EXECUTION GUIDE (20-30 min skim, then reference daily)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ IMPLEMENTATION_CHECKLIST.md                                                  │
+│ 8-week phased implementation plan:                                           │
+│                                                                              │
+│ PRE-PHASE: Get 4 blocking stakeholder decisions (REQUIRED BEFORE CODING)   │
+│                                                                              │
+│ Phase 1 (Weeks 1-2):   IndexedDB + PWA + remove backend                     │
+│ Phase 2 (Weeks 3-4):   Client solver + Four Fs rules                        │
+│ Phase 3 (Week 4-5):    Client PDF export                                    │
+│ Phase 4 (Week 5-6):    Sync engine + HWS                                    │
+│ Phase 5 (Week 6):      Backend cleanup                                      │
+│ Phase 6 (Week 6-7):    Documentation + testing                              │
+│ Phase 7 (Week 8):      Pilot rollout                                        │
+│                                                                              │
+│ Each phase has:                                                             │
+│ • Specific tasks with checkboxes                                            │
+│ • Files to create/modify (exact names)                                      │
+│ • Deadlines and owners                                                      │
+│ • Tests to write                                                            │
+│ • Sign-off criteria                                                         │
+│                                                                              │
+│ USE AS: Daily task list; check off as you complete                          │
+│ READ THIS FOURTH ←─────────────────────────────────────────────────────────── │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+📕 NAVIGATION GUIDE (10-15 min read)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ README_DOCUMENTATION.md                                                      │
+│ • How to use all 4 documents                                                 │
+│ • Quick start path (5 steps)                                                 │
+│ • Key stats & timeline                                                       │
+│ • Technology stack                                                           │
+│ • Learning resources (5-6 hours recommended)                                 │
+│ • Pre-Phase 1 checklist                                                      │
+│ • Common pitfalls to avoid                                                   │
+│ • Support & escalation                                                       │
+│ • Success indicators by week                                                 │
+│                                                                              │
+│ USE AS: Guide to navigate all documentation                                  │
+│ READ FOR: References & learning resources                                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                           READING SEQUENCE                                    ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+Day 1 (2-3 hours):
+  1️⃣  Read SUMMARY_FOR_DEVELOPERS.md (15 min)
+  2️⃣  Read DEVELOPER_HANDOVER.md (15 min)
+  3️⃣  Skim PROJECT_SUMMARY.md Parts 1-3 (20 min)
+  4️⃣  Skim IMPLEMENTATION_CHECKLIST.md Phase 1 (10 min)
+  5️⃣  Identify the 4 blocking decisions needed
+
+Day 2-3 (2-3 hours):
+  6️⃣  Get stakeholder decisions on all 4 questions
+  7️⃣  Read remaining PROJECT_SUMMARY.md (20 min)
+  8️⃣  Read README_DOCUMENTATION.md (15 min)
+  9️⃣  Complete learning resources (5-6 hours, can be parallel)
+
+Day 3-4 (1 day):
+  🔟 Set up development environment
+  1️⃣1️⃣ Create git branch for Phase 1
+
+Week 1:
+  1️⃣2️⃣ Begin Phase 1 execution using IMPLEMENTATION_CHECKLIST.md
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                         KEY PROJECT INFORMATION                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+CURRENT STATE (What exists now):
+  ❌ FastAPI backend with PuLP MILP solver
+  ❌ SQLite database
+  ❌ React frontend calling backend
+  ❌ Requires live server
+  ❌ No offline capability
+
+TARGET STATE (What we're building):
+  ✅ React frontend with IndexedDB storage
+  ✅ Client-side MILP solver (WASM or JS)
+  ✅ Service Worker for offline-first PWA
+  ✅ Works 100% without internet
+  ✅ Optional sync to HWS on reconnect
+
+TIMELINE: 8 weeks to pilot launch with 30+ NUMs
+
+EFFORT: 1-2 developers, 40% testing effort
+
+FILES CHANGING:
+  • Create: ~30+ new files (db/, solver/, rules/, sync/, export/)
+  • Modify: ~8 existing files (App.jsx, NumDashboard.jsx, package.json, etc.)
+  • Delete: backend/ directory (entire folder)
+
+TECHNOLOGY (After Redesign):
+  • Frontend: React 19 + Vite (no change)
+  • Data Storage: Dexie (IndexedDB wrapper) NEW
+  • Solver: OR-Tools WASM OR jsLPSolve (choose) NEW
+  • PDF Export: jsPDF + html2canvas NEW
+  • Offline: Service Worker + Web App Manifest NEW
+  • Sync: Custom engine with conflict resolution NEW
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                        BLOCKING DECISIONS (GET ASAP!)                         ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+⚠️  DECISION 1: MILP Solver (Technical Lead) → ASAP
+    □ OR-Tools WASM (recommended, powerful, complex)
+    □ jsLPSolve (lightweight MVP, LP-only)
+    □ Custom greedy (fallback only)
+    Blocks: Phase 2 (Weeks 3-4)
+
+⚠️  DECISION 2: Four Fs Rules (NUM/Clinical Lead) → ASAP
+    □ Fair: How to distribute shifts equally?
+    □ Fatigue: Max consecutive shifts? Rest days?
+    □ Flexibility: How to weight preferences?
+    □ Requests: Max swaps? Max time-off?
+    Blocks: Phase 2 (Weeks 3-4)
+
+⚠️  DECISION 3: HWS Sync Spec (HWS Technical Lead) → Before Week 5
+    □ Format: CSV, JSON, REST, WebSocket?
+    □ Conflicts: auto-merge, manual, server-wins?
+    □ Data fields: What rosters need?
+    Blocks: Phase 4 (Week 5-6)
+
+⚠️  DECISION 4: Backend Future (Technical Lead) → Before Week 6
+    □ Option A: Delete entirely (frontend only)
+    □ Option B: Keep minimal sync service
+    Blocks: Phase 5 (Week 6)
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                          SUCCESS INDICATORS                                   ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+✅ Week 2 (Phase 1):   IndexedDB works, Service Worker active, no backend calls
+✅ Week 4 (Phase 2):   Roster generates <5 sec, all rules enforced, tests pass
+✅ Week 5 (Phase 3):   PDF exports locally, no server needed
+✅ Week 6 (Phase 4):   Sync works, conflicts resolved, background sync active
+✅ Week 8 (Pilot):     30+ NUMs using offline, positive feedback, no critical bugs
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                      DOCUMENT VERSIONS & STATUS                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+SUMMARY_FOR_DEVELOPERS.md         v1.0  ✅ Complete
+DEVELOPER_HANDOVER.md             v1.0  ✅ Complete
+PROJECT_SUMMARY.md                v1.0  ✅ Complete
+IMPLEMENTATION_CHECKLIST.md        v1.0  ✅ Complete (updated from v0.x)
+README_DOCUMENTATION.md            v1.0  ✅ Complete
+
+All documents committed to main branch.
+Ready for developer review and Phase 1 execution.
+
+Last updated: 3 November 2025
+
