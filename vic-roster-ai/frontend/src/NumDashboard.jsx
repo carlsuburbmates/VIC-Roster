@@ -16,6 +16,8 @@ export default function NumDashboard() {
       const data = await res.json();
       setResult(data);
     } catch (err) {
+      // Log for diagnostics to satisfy ESLint no-unused-vars and aid debugging
+      console.error('Run App.4 Audit failed:', err);
       setResult({ status: "error", message: "Backend unreachable" });
     }
     setLoading(false);
