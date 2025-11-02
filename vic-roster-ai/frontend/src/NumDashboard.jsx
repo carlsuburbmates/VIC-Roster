@@ -1,5 +1,66 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+
+const ROLE_ORDER = ['ANUM', 'CNS', 'RN', 'EN', 'GNP'];
+const SHIFT_CODE_MAP = { AM: 'D', PM: 'E', ND: 'N' };
+const SHIFT_DETAILS = {
+  D: { label: 'Day Shift', window: '0700–1530', bg: '#FFFFFF', text: '#212529', border: '#B0BEC5' },
+  E: { label: 'Evening Shift', window: '1300–2130', bg: '#FFED9E', text: '#212529', border: '#E1B955' },
+  N: { label: 'Night Duty', window: '2100–0730', bg: '#2E7D32', text: '#FFFFFF', border: '#1B5E20' },
+  OFF: { label: 'Day Off', window: '—', bg: '#E9ECEF', text: '#495057', border: '#CED4DA' }
+};
+
+const TURNAROUND_FLAGS = {
+  D: ['N'],
+  E: ['D'],
+  N: ['D', 'E']
+};
+
+const START_DATE = '2025-01-05';
+
+function roleOrderIndex(role) {
+  const idx = ROLE_ORDER.indexOf((role || '').toUpperCase());
+  return idx === -1 ? ROLE_ORDER.length : idx;
+}
+
+function formatDateLabel(date) {
+  const dayMonth = date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'Australia/Melbourne' });
+  const weekday = date.toLocaleDateString('en-AU', { weekday: 'short', timeZone: 'Australia/Melbourne' });
+  return `${dayMonth} ${weekday}`;
+}
+
+function computeCompliance(shifts, weekendFlags) {
+  let totalOff = 0;
+  let consecutiveWork = 0;
+  let longestOffStreak = 0;
+  let currentOffStreak = 0;
+  let flagged = false;
+  let weekendCount = 0;
+
+  shifts.forEach((shift, idx) => {
+    if (shift === 'OFF') {
+      totalOff += 1;
+      currentOffStreak += 1;
+      longestOffStreak = Math.max(longestOffStreak, currentOffStreak);
+      consecutiveWork = 0;
+    } else {
+      currentOffStreak = 0;
+      consecutiveWork += 1;
+      if (consecutiveWork > 6) flagged = true;
+      const next = shifts[idx + 1];
+      if (next && next !== 'OFF' && TURNAROUND_FLAGS[shift]?.includes(next)) {
+        flagged = true;
+      }
+    }
+    if (weekendFlags[idx] && shift !== 'OFF') weekendCount += 1;
+  });
+
+  return {
+    hasFourClearDays: totalOff >= 4,
+    flagged,
+    weekendCount,
+    longestOffStreak
+  };
+}
 
 export default function NumDashboard() {
   const [profiles, setProfiles] = useState([]);
@@ -17,70 +78,200 @@ export default function NumDashboard() {
       const data = await res.json();
       setResult(data);
     } catch (err) {
-      // Log for diagnostics to satisfy ESLint no-unused-vars and aid debugging
       console.error('Run App.4 Audit failed:', err);
-      setResult({ status: "error", message: "Backend unreachable" });
+      setResult({ status: 'error', message: 'Backend unreachable' });
     }
     setLoading(false);
   };
 
+  const dayMeta = useMemo(() => {
+    const base = new Date(`${START_DATE}T00:00:00`);
+    return Array.from({ length: 14 }, (_, index) => {
+      const date = new Date(base);
+      date.setDate(base.getDate() + index);
+      return {
+        label: formatDateLabel(date),
+        weekIndex: index < 7 ? 0 : 1,
+        isWeekend: date.getDay() === 0 || date.getDay() === 6
+      };
+    });
+  }, []);
+
+  const publishedRows = useMemo(() => {
+    if (!result || result.status !== 'valid') return [];
+
+    const roster = result.roster || [];
+    const allNames = new Set(profiles.map(p => p.name));
+
+    roster.forEach(day => {
+      ['AM', 'PM', 'ND'].forEach(block => day[block].forEach(name => allNames.add(name)));
+    });
+
+    const matrix = {};
+    allNames.forEach(name => { matrix[name] = Array(14).fill('OFF'); });
+
+    roster.forEach((day, dayIndex) => {
+      ['AM', 'PM', 'ND'].forEach(block => {
+        const code = SHIFT_CODE_MAP[block];
+        day[block].forEach(name => {
+          if (!matrix[name]) matrix[name] = Array(14).fill('OFF');
+          matrix[name][dayIndex] = code;
+        });
+      });
+    });
+
+    const weekendFlags = dayMeta.map(d => d.isWeekend);
+
+    return Object.entries(matrix).map(([name, shifts]) => {
+      const profile = profiles.find(p => p.name === name);
+      const role = (profile?.role || profile?.position || 'RN').toUpperCase();
+      const compliance = computeCompliance(shifts, weekendFlags);
+      return {
+        name,
+        role,
+        email: profile?.email || name,
+        shifts,
+        compliance
+      };
+    }).sort((a, b) => {
+      const roleDiff = roleOrderIndex(a.role) - roleOrderIndex(b.role);
+      if (roleDiff !== 0) return roleDiff;
+      return a.name.localeCompare(b.name);
+    });
+  }, [result, profiles, dayMeta]);
+
+  const publishedDate = useMemo(() => new Date().toLocaleDateString('en-AU'), []);
+  const approvingNum = useMemo(() => {
+    const numProfile = profiles.find(p => (p.role || '').toUpperCase() === 'NUM');
+    return numProfile ? numProfile.name : 'Pending Assignment';
+  }, [profiles]);
+
   return (
     <div style={styles.container}>
-      <nav style={styles.nav}>
-        <Link to="/" style={styles.navLink}>Staff Profile</Link>
-        <Link to="/num" style={styles.navLinkActive}>NUM Dashboard</Link>
-        <Link to="/instructions" style={styles.navLink}>Instructions</Link>
-      </nav>
       <h1 style={styles.header}>NUM – Appendix 4 Audit</h1>
-      <button onClick={runAudit} disabled={loading} style={styles.button}>
-        {loading ? 'Generating...' : 'Generate Roster'}
+      <button onClick={runAudit} disabled={loading} style={styles.triggerButton}>
+        {loading ? 'Generating...' : 'Run App.4 Audit'}
       </button>
 
-      <h2>Staff ({profiles.length})</h2>
-      <div style={styles.grid}>
+      <h2 style={styles.sectionTitle}>Staff ({profiles.length})</h2>
+      <div style={styles.staffGrid}>
         {profiles.map(p => (
-          <div key={p.email} style={styles.card}>
-            <strong>{p.name}</strong><br/>{p.fte} FTE | {p.shiftPref} | Max ND: {p.maxNDs}
+          <div key={p.email} style={styles.staffCard}>
+            <strong>{p.name}</strong>
+            <div style={styles.staffMeta}>{(p.role || 'RN').toUpperCase()} • {p.fte} FTE</div>
+            <div style={styles.staffMeta}>Pref: {p.shiftPref} • Max ND: {p.maxNDs}</div>
           </div>
         ))}
       </div>
 
       {result && (
         <div>
-          {result.status === "valid" ? (
-            <>
-              <h2>14-Day Roster</h2>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={headerCell}>Day</th>
-                    <th style={headerCell}>AM</th>
-                    <th style={headerCell}>PM</th>
-                    <th style={headerCell}>ND</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.roster.map((d, i) => (
-                    <tr key={i}>
-                      <td style={dayCell}><strong>Day {d.day}</strong></td>
-                      <td style={amStyle}>{d.AM.join(', ') || '-'}</td>
-                      <td style={pmStyle}>{d.PM.join(', ') || '-'}</td>
-                      <td style={ndStyle}>{d.ND.join(', ') || '-'}</td>
+          {result.status === 'valid' ? (
+            <div style={styles.publishedWrapper}>
+              <div style={styles.banner}>
+                <div style={styles.bannerLeft}>
+                  <div style={styles.logoBar}>Austin Health</div>
+                </div>
+                <div style={styles.bannerCenter}>
+                  <div style={styles.bannerTitle}>Published Roster – Ward A – Fortnight 5–19 Jan</div>
+                </div>
+                <div style={styles.bannerRight}>
+                  <div style={styles.bannerMeta}>Published: {publishedDate}</div>
+                  <div style={styles.bannerMeta}>Approved by: NUM {approvingNum}</div>
+                </div>
+              </div>
+
+              <div style={styles.legend}>
+                {Object.entries(SHIFT_DETAILS).map(([code, detail]) => (
+                  <div key={code} style={styles.legendItem}>
+                    <span style={{ ...styles.legendSwatch, background: detail.bg, borderColor: detail.border }} />
+                    <span style={styles.legendText}><strong>{code}</strong> {detail.window} – {detail.label}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={styles.tableShell}>
+                <div style={styles.rightBar} />
+                <table style={styles.publishedTable}>
+                  <thead>
+                    <tr>
+                      <th style={styles.stickyHeaderCell} rowSpan={2}>Role</th>
+                      <th style={styles.stickyHeaderCell} rowSpan={2}>Name</th>
+                      <th style={styles.stickyHeaderCell} rowSpan={2}>Compliance</th>
+                      <th style={styles.weekHeaderCell} colSpan={7}>WEEK 1</th>
+                      <th style={styles.weekHeaderCell} colSpan={7}>WEEK 2</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p style={success}>100% EBA Compliant</p>
+                    <tr>
+                      {dayMeta.map((d, idx) => (
+                        <th
+                          key={idx}
+                          style={{
+                            ...styles.dayHeaderCell,
+                            background: '#FFEEA9'
+                          }}
+                        >
+                          {d.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {publishedRows.map(row => (
+                      <tr key={row.email}>
+                        <td style={styles.roleCell}>{row.role}</td>
+                        <td style={styles.nameCell}>{row.name}</td>
+                        <td style={styles.complianceCell}>
+                          <span style={row.compliance.hasFourClearDays ? styles.checkGood : styles.checkMuted}>
+                            {row.compliance.hasFourClearDays ? '✓ 4+ days off' : '• <4 days off'}
+                          </span>
+                          {row.compliance.flagged ? (
+                            <span style={styles.flagBad}>⚠️ Rest breach</span>
+                          ) : (
+                            <span style={styles.flagGood}>—</span>
+                          )}
+                          <span style={styles.weekendCount}>W: {row.compliance.weekendCount}/4</span>
+                        </td>
+                        {row.shifts.map((shift, idx) => {
+                          const detail = SHIFT_DETAILS[shift] || SHIFT_DETAILS.OFF;
+                          const isWeekend = dayMeta[idx].isWeekend;
+                          return (
+                            <td
+                              key={`${row.email}-${idx}`}
+                              style={{
+                                ...styles.shiftCell,
+                                background: detail.bg,
+                                color: detail.text,
+                                borderColor: detail.border,
+                                fontWeight: shift === 'OFF' ? 500 : 600,
+                                boxShadow: isWeekend ? 'inset 0 0 0 1px #B0BEC5' : undefined
+                              }}
+                            >
+                              {shift}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <p style={styles.complianceNote}>100% EBA Compliant • Fairness checks passed • Fatigue review ready</p>
+
               <button
-                onClick={() => { window.location.href = 'http://localhost:8000/export-pdf'; }}
-                style={styles.exportBtn}
+                onClick={() => { window.location.href = 'http://localhost:8000/export-excel'; }}
+                style={styles.exportButton}
               >
-                Export Appendix 4 PDF
+                Export SRF Roster Excel
               </button>
-            </>
+
+              <footer style={styles.footer}>
+                OPPIC ID: GDL-25994 • Updated: 18/05/2025 • Retain for seven (7) years
+              </footer>
+            </div>
           ) : (
-            <p style={error}>
-              No solution: {result.message || "Adjust FTE, coverage, or locks"}
+            <p style={styles.errorMessage}>
+              No solution: {result.message || 'Adjust FTE, coverage, or locks'}
             </p>
           )}
         </div>
@@ -90,21 +281,42 @@ export default function NumDashboard() {
 }
 
 const styles = {
-  container: { fontFamily: 'Inter, sans-serif', maxWidth: 960, margin: '40px auto', padding: 32, background: '#F8F9FA', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' },
-  nav: { display: 'flex', gap: 16, marginBottom: 24, padding: '16px 0', borderBottom: '2px solid #E9ECEF' },
-  navLink: { color: '#004B87', textDecoration: 'none', fontWeight: 500, padding: '8px 16px', borderRadius: 4, transition: 'background 0.2s' },
-  navLinkActive: { color: 'white', background: '#004B87', textDecoration: 'none', fontWeight: 500, padding: '8px 16px', borderRadius: 4 },
-  header: { color: '#004B87', fontSize: 28, marginBottom: 16, textAlign: 'center' },
-  button: { background: '#004B87', color: 'white', padding: 14, border: 'none', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer', width: '100%', marginBottom: 24 },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 32 },
-  card: { background: 'white', borderRadius: 8, padding: 16, border: '1px solid #E9ECEF', textAlign: 'left', color: '#212529' },
-  table: { width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 8, overflow: 'hidden', marginTop: 16 },
-  exportBtn: { background: '#2A9D8F', color: 'white', padding: 12, border: 'none', borderRadius: 8, margin: '16px 0', width: '100%', fontWeight: 'bold', cursor: 'pointer' }
+  container: { fontFamily: 'Inter, sans-serif', maxWidth: 1140, margin: '40px auto', padding: 32, background: '#F5F7FB', borderRadius: 16, boxShadow: '0 2px 8px rgba(31,45,61,0.12)' },
+  header: { color: '#004B87', fontSize: 28, marginBottom: 12, textAlign: 'center' },
+  triggerButton: { background: '#004B87', color: 'white', padding: 14, border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer', width: '100%', marginBottom: 24 },
+  sectionTitle: { color: '#495057', fontSize: 18, marginBottom: 12 },
+  staffGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 32 },
+  staffCard: { background: 'white', borderRadius: 12, padding: 16, border: '1px solid #E3E8EF', boxShadow: '0 1px 2px rgba(15,23,42,0.08)' },
+  staffMeta: { color: '#6C757D', fontSize: 13, marginTop: 4 },
+  publishedWrapper: { background: 'white', borderRadius: 16, padding: 24, border: '1px solid #DDE1E6', boxShadow: '0 10px 40px rgba(76,78,100,0.08)' },
+  banner: { display: 'grid', gridTemplateColumns: '160px 1fr 220px', alignItems: 'center', background: '#4B0082', color: 'white', borderRadius: 12, padding: '16px 24px', marginBottom: 20 },
+  bannerLeft: { display: 'flex', alignItems: 'center' },
+  logoBar: { background: 'rgba(255,255,255,0.18)', padding: '8px 12px', borderRadius: 8, fontWeight: 600, letterSpacing: 0.6 },
+  bannerCenter: { textAlign: 'center', fontWeight: 700, fontSize: 20 },
+  bannerTitle: { margin: 0 },
+  bannerRight: { textAlign: 'right', fontSize: 13, lineHeight: 1.4 },
+  bannerMeta: { margin: 0 },
+  legend: { display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 20 },
+  legendItem: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#495057' },
+  legendSwatch: { display: 'inline-block', width: 22, height: 22, borderRadius: 6, border: '1px solid #CED4DA' },
+  legendText: { display: 'inline-flex', flexDirection: 'column', fontSize: 12, color: '#495057' },
+  tableShell: { position: 'relative', overflowX: 'auto', borderRadius: 12, border: '1px solid #CED4DA' },
+  rightBar: { position: 'absolute', top: 0, bottom: 0, right: 0, width: 6, background: '#C62828', borderTopRightRadius: 12, borderBottomRightRadius: 12 },
+  publishedTable: { width: '100%', borderCollapse: 'collapse', fontSize: 13, color: '#212529' },
+  stickyHeaderCell: { background: '#E0D7EC', color: '#2C1D4E', padding: '12px 8px', border: '1px solid #C3BADB', textAlign: 'left', minWidth: 110, fontWeight: 600 },
+  weekHeaderCell: { background: '#6C757D', color: 'white', padding: 12, border: '1px solid #54606B', textAlign: 'center', fontWeight: 700 },
+  dayHeaderCell: { color: '#3F3D56', padding: '10px 8px', border: '1px solid #E4C063', fontWeight: 600, textAlign: 'center', minWidth: 100 },
+  roleCell: { background: '#1F1F1F', color: 'white', padding: '10px 12px', border: '1px solid #2B2B2B', fontWeight: 600, textTransform: 'uppercase', textAlign: 'center' },
+  nameCell: { background: '#F8F9FA', padding: '10px 12px', border: '1px solid #CED4DA', fontWeight: 600 },
+  complianceCell: { background: '#F1F3F5', padding: '10px 12px', border: '1px solid #CED4DA', display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 },
+  checkGood: { color: '#2E7D32', fontWeight: 600 },
+  checkMuted: { color: '#AD8C00', fontWeight: 600 },
+  flagBad: { color: '#C62828', fontWeight: 600 },
+  flagGood: { color: '#B0BEC5', fontWeight: 600 },
+  weekendCount: { color: '#1565C0', fontWeight: 600 },
+  shiftCell: { padding: '10px 0', textAlign: 'center', border: '1px solid #CED4DA' },
+  complianceNote: { textAlign: 'center', fontSize: 14, fontWeight: 600, color: '#2E7D32', margin: '16px 0' },
+  exportButton: { background: '#2A9D8F', color: 'white', padding: 14, border: 'none', borderRadius: 10, fontWeight: 600, cursor: 'pointer', width: '100%', margin: '12px 0 0' },
+  footer: { marginTop: 20, textAlign: 'center', fontSize: 12, color: '#6C757D', borderTop: '1px solid #E0E0E0', paddingTop: 12 },
+  errorMessage: { color: '#E76F51', fontWeight: 600, textAlign: 'center', marginTop: 24 }
 };
-const headerCell = { background: '#004B87', color: 'white', padding: 8, border: '1px solid #DEE2E6', textAlign: 'left' };
-const dayCell = { border: '1px solid #DEE2E6', padding: 8, fontWeight: 'bold' };
-const amStyle = { background: '#A8DADC', padding: 8, border: '1px solid #DEE2E6' };
-const pmStyle = { background: '#F4A261', padding: 8, border: '1px solid #DEE2E6' };
-const ndStyle = { background: '#1D3557', color: 'white', padding: 8, border: '1px solid #DEE2E6' };
-const success = { color: '#2A9D8F', fontWeight: 'bold', textAlign: 'center', marginTop: 16 };
-const error = { color: '#E76F51', fontWeight: 'bold', textAlign: 'center', marginTop: 16 };

@@ -4,8 +4,15 @@ import './App.css';
 
 function App() {
   const [form, setForm] = useState({
-    name: '', email: '', fte: '1.0', shiftPref: 'AM', maxNDs: '3',
-    softLock: '', hardLock: '', cycle: '27 Nov – 10 Dec'
+    name: '',
+    email: '',
+    role: 'RN',
+    fte: '1.0',
+    shiftPref: 'AM',
+    maxNDs: '3',
+    softLock: '',
+    hardLock: '',
+    cycle: '27 Nov – 10 Dec'
   });
   const [errors, setErrors] = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -14,6 +21,7 @@ function App() {
     const err = {};
     if (!form.name) err.name = "Name required";
     if (!form.email || !form.email.includes('@')) err.email = "Valid email required";
+    if (!form.role) err.role = "Role required";
     if (!['0.6', '0.8', '1.0'].includes(form.fte)) err.fte = "Invalid FTE";
     if (!['AM', 'PM', 'ND'].includes(form.shiftPref)) err.shiftPref = "Select shift";
     const nd = parseInt(form.maxNDs);
@@ -30,7 +38,7 @@ function App() {
     const res = await fetch('http://localhost:8000/submit-profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form)
+          body: JSON.stringify(form)
     });
     if (res.ok) setSubmitted(true);
   };
@@ -63,6 +71,16 @@ function App() {
         <input name="email" placeholder="Email (unique ID)" value={form.email}
           onChange={e => setForm({...form, email: e.target.value})} style={styles.input} />
         {errors.email && <span style={styles.error}>{errors.email}</span>}
+
+        <select name="role" value={form.role}
+          onChange={e => setForm({...form, role: e.target.value})} style={styles.input}>
+          <option value="ANUM">ANUM</option>
+          <option value="CNS">CNS</option>
+          <option value="RN">RN</option>
+          <option value="EN">EN</option>
+          <option value="GNP">GNP</option>
+        </select>
+        {errors.role && <span style={styles.error}>{errors.role}</span>}
 
         <select name="fte" value={form.fte} onChange={e => setForm({...form, fte: e.target.value})} style={styles.input}>
           <option value="1.0">1.0 FTE</option>
