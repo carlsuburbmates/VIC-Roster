@@ -9,12 +9,6 @@ const SHIFT_DETAILS = {
   OFF: { label: 'Day Off', window: '—', bg: '#E9ECEF', text: '#495057', border: '#CED4DA' }
 };
 
-const TURNAROUND_FLAGS = {
-  D: ['N'],
-  E: ['D'],
-  N: ['D', 'E']
-};
-
 const START_DATE = '2025-01-05';
 
 function roleOrderIndex(role) {
@@ -26,40 +20,6 @@ function formatDateLabel(date) {
   const dayMonth = date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'Australia/Melbourne' });
   const weekday = date.toLocaleDateString('en-AU', { weekday: 'short', timeZone: 'Australia/Melbourne' });
   return `${dayMonth} ${weekday}`;
-}
-
-function computeCompliance(shifts, weekendFlags) {
-  let totalOff = 0;
-  let consecutiveWork = 0;
-  let longestOffStreak = 0;
-  let currentOffStreak = 0;
-  let flagged = false;
-  let weekendCount = 0;
-
-  shifts.forEach((shift, idx) => {
-    if (shift === 'OFF') {
-      totalOff += 1;
-      currentOffStreak += 1;
-      longestOffStreak = Math.max(longestOffStreak, currentOffStreak);
-      consecutiveWork = 0;
-    } else {
-      currentOffStreak = 0;
-      consecutiveWork += 1;
-      if (consecutiveWork > 6) flagged = true;
-      const next = shifts[idx + 1];
-      if (next && next !== 'OFF' && TURNAROUND_FLAGS[shift]?.includes(next)) {
-        flagged = true;
-      }
-    }
-    if (weekendFlags[idx] && shift !== 'OFF') weekendCount += 1;
-  });
-
-  return {
-    hasFourClearDays: totalOff >= 4,
-    flagged,
-    weekendCount,
-    longestOffStreak
-  };
 }
 
 export default function NumDashboard() {
@@ -97,11 +57,19 @@ export default function NumDashboard() {
     });
   }, []);
 
+  const analyticsByName = useMemo(() => {
+    if (!result || !result.analytics) return {};
+    const map = {};
+    result.analytics.forEach(entry => { map[entry.name] = entry; });
+    return map;
+  }, [result]);
+
   const publishedRows = useMemo(() => {
     if (!result || result.status !== 'valid') return [];
 
     const roster = result.roster || [];
     const allNames = new Set(profiles.map(p => p.name));
+    Object.keys(analyticsByName).forEach(name => allNames.add(name));
 
     roster.forEach(day => {
       ['AM', 'PM', 'ND'].forEach(block => day[block].forEach(name => allNames.add(name)));
@@ -120,25 +88,23 @@ export default function NumDashboard() {
       });
     });
 
-    const weekendFlags = dayMeta.map(d => d.isWeekend);
-
     return Object.entries(matrix).map(([name, shifts]) => {
       const profile = profiles.find(p => p.name === name);
-      const role = (profile?.role || profile?.position || 'RN').toUpperCase();
-      const compliance = computeCompliance(shifts, weekendFlags);
+      const analytics = analyticsByName[name];
+      const role = (analytics?.role || profile?.role || profile?.position || 'RN').toUpperCase();
       return {
         name,
         role,
         email: profile?.email || name,
         shifts,
-        compliance
+        analytics
       };
     }).sort((a, b) => {
       const roleDiff = roleOrderIndex(a.role) - roleOrderIndex(b.role);
       if (roleDiff !== 0) return roleDiff;
       return a.name.localeCompare(b.name);
     });
-  }, [result, profiles, dayMeta]);
+  }, [result, profiles, analyticsByName]);
 
   const publishedDate = useMemo(() => new Date().toLocaleDateString('en-AU'), []);
   const approvingNum = useMemo(() => {
@@ -160,6 +126,15 @@ export default function NumDashboard() {
             <strong>{p.name}</strong>
             <div style={styles.staffMeta}>{(p.role || 'RN').toUpperCase()} • {p.fte} FTE</div>
             <div style={styles.staffMeta}>Pref: {p.shiftPref} • Max ND: {p.maxNDs}</div>
+            <div style={styles.staffMeta}>Requests: {p.requestsQuota} | Preferences: {p.preferencesQuota}</div>
+            {p.availabilityNotes && <div style={styles.staffMetaSmall}>{p.availabilityNotes}</div>}
+            {p.supplementaryAvailability && <div style={styles.staffMetaSmall}>Supplementary: {p.supplementaryAvailability}</div>}
+            <div style={styles.badgesRow}>
+              {p.flexibleWork && <span style={styles.badge}>FWA</span>}
+              {p.swapWilling && <span style={styles.badge}>Swap OK</span>}
+              {p.overtimeOptIn && <span style={styles.badge}>Overtime</span>}
+              {p.localInductionComplete && <span style={styles.badge}>Inducted</span>}
+            </div>
           </div>
         ))}
       </div>
@@ -168,6 +143,16 @@ export default function NumDashboard() {
         <div>
           {result.status === 'valid' ? (
             <div style={styles.publishedWrapper}>
+              {result.compliance && (
+                <div style={result.compliance.overall === 'pass' ? styles.complianceBannerPass : styles.complianceBannerWarn}>
+                  <span>
+                    {result.compliance.overall === 'pass'
+                      ? 'Compliance summary: Pass – roster meets fatigue and fairness thresholds.'
+                      : `Compliance summary: Attention required for ${result.compliance.warnings.length} staff member(s).`}
+                  </span>
+                </div>
+              )}
+
               <div style={styles.banner}>
                 <div style={styles.bannerLeft}>
                   <div style={styles.logoBar}>Austin Health</div>
@@ -221,15 +206,29 @@ export default function NumDashboard() {
                         <td style={styles.roleCell}>{row.role}</td>
                         <td style={styles.nameCell}>{row.name}</td>
                         <td style={styles.complianceCell}>
-                          <span style={row.compliance.hasFourClearDays ? styles.checkGood : styles.checkMuted}>
-                            {row.compliance.hasFourClearDays ? '✓ 4+ days off' : '• <4 days off'}
-                          </span>
-                          {row.compliance.flagged ? (
-                            <span style={styles.flagBad}>⚠️ Rest breach</span>
+                          {row.analytics ? (
+                            <>
+                              <span style={row.analytics.compliant ? styles.checkGood : styles.checkMuted}>
+                                {row.analytics.compliant ? '✓ Compliance pass' : '⚠️ Review required'}
+                              </span>
+                              <span style={styles.flagInfo}>Fatigue score: {row.analytics.fatigueScore}</span>
+                              <span style={styles.weekendCount}>Weekend shifts: {row.analytics.weekendCount}</span>
+                              <span style={styles.flagInfo}>Max consecutive: {row.analytics.maxConsecutive}</span>
+                              {!row.analytics.hasTwoDayBreak && (
+                                <span style={styles.flagBad}>Needs two consecutive days off</span>
+                              )}
+                              {row.analytics.restBreaches.length > 0 && (
+                                <span style={styles.flagBad}>
+                                  Turnaround breaches: {row.analytics.restBreaches.length}
+                                </span>
+                              )}
+                              {row.analytics.notes.length > 0 && (
+                                <span style={styles.flagBad}>{row.analytics.notes.join(' • ')}</span>
+                              )}
+                            </>
                           ) : (
-                            <span style={styles.flagGood}>—</span>
+                            <span style={styles.flagGood}>No analytics</span>
                           )}
-                          <span style={styles.weekendCount}>W: {row.compliance.weekendCount}/4</span>
                         </td>
                         {row.shifts.map((shift, idx) => {
                           const detail = SHIFT_DETAILS[shift] || SHIFT_DETAILS.OFF;
@@ -288,7 +287,12 @@ const styles = {
   staffGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 32 },
   staffCard: { background: 'white', borderRadius: 12, padding: 16, border: '1px solid #E3E8EF', boxShadow: '0 1px 2px rgba(15,23,42,0.08)' },
   staffMeta: { color: '#6C757D', fontSize: 13, marginTop: 4 },
+  staffMetaSmall: { color: '#868E96', fontSize: 12, marginTop: 4, fontStyle: 'italic' },
+  badgesRow: { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  badge: { background: '#E3F2FD', color: '#1565C0', padding: '4px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600, textTransform: 'uppercase' },
   publishedWrapper: { background: 'white', borderRadius: 16, padding: 24, border: '1px solid #DDE1E6', boxShadow: '0 10px 40px rgba(76,78,100,0.08)' },
+  complianceBannerPass: { background: '#E6F4EA', color: '#1E7E34', padding: '10px 14px', borderRadius: 10, marginBottom: 16, fontWeight: 600 },
+  complianceBannerWarn: { background: '#FFF3CD', color: '#856404', padding: '10px 14px', borderRadius: 10, marginBottom: 16, fontWeight: 600 },
   banner: { display: 'grid', gridTemplateColumns: '160px 1fr 220px', alignItems: 'center', background: '#4B0082', color: 'white', borderRadius: 12, padding: '16px 24px', marginBottom: 20 },
   bannerLeft: { display: 'flex', alignItems: 'center' },
   logoBar: { background: 'rgba(255,255,255,0.18)', padding: '8px 12px', borderRadius: 8, fontWeight: 600, letterSpacing: 0.6 },
@@ -314,6 +318,7 @@ const styles = {
   flagBad: { color: '#C62828', fontWeight: 600 },
   flagGood: { color: '#B0BEC5', fontWeight: 600 },
   weekendCount: { color: '#1565C0', fontWeight: 600 },
+  flagInfo: { color: '#495057', fontWeight: 600 },
   shiftCell: { padding: '10px 0', textAlign: 'center', border: '1px solid #CED4DA' },
   complianceNote: { textAlign: 'center', fontSize: 14, fontWeight: 600, color: '#2E7D32', margin: '16px 0' },
   exportButton: { background: '#2A9D8F', color: 'white', padding: 14, border: 'none', borderRadius: 10, fontWeight: 600, cursor: 'pointer', width: '100%', margin: '12px 0 0' },

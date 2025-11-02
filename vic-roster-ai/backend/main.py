@@ -1,16 +1,47 @@
+from datetime import datetime
+import os
+import sqlite3
+from typing import Dict, List, Tuple
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from datetime import datetime
-import sqlite3
-from pulp import LpProblem, LpMinimize, LpVariable, LpBinary, lpSum, value
 from fastapi.responses import FileResponse
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
-import os
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from pulp import LpBinary, LpMinimize, LpProblem, LpVariable, lpSum, value
+from pydantic import BaseModel
+
+DB_FILENAME = "roster.db"
+EXPORT_FILENAME = "Roster_Request.xlsx"
+
+BASE_DIR = os.path.dirname(__file__)
+DB_PATH = os.path.join(BASE_DIR, DB_FILENAME)
+EXPORT_PATH = os.path.join(BASE_DIR, EXPORT_FILENAME)
+
+DAYS = 14
+SHIFTS = ["AM", "PM", "ND"]
+SHIFT_CODE_MAP = {"AM": "D", "PM": "E", "ND": "N"}
+SHIFT_BANNED_PAIRS = {("E", "D"), ("N", "D"), ("N", "E"), ("D", "N")}
+ROLE_ORDER = ["ANUM", "CNS", "RN", "EN", "GNP"]
+WEEKEND_INDEXES = {5, 6, 12, 13}
+DEFAULT_REQUESTS = 2
+DEFAULT_PREFERENCES = 2
+BOOLEAN_FIELDS = [
+    "flexibleWork",
+    "swapWilling",
+    "overtimeOptIn",
+    "rightToDisconnectAck",
+    "localInductionComplete",
+]
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class Profile(BaseModel):
     name: str
@@ -19,158 +50,360 @@ class Profile(BaseModel):
     fte: str
     shiftPref: str
     maxNDs: str
-    softLock: str
-    hardLock: str
+    softLock: str = ""
+    hardLock: str = ""
     cycle: str
+    requestsQuota: int = DEFAULT_REQUESTS
+    preferencesQuota: int = DEFAULT_PREFERENCES
+    flexibleWork: bool = False
+    swapWilling: bool = True
+    overtimeOptIn: bool = False
+    availabilityNotes: str = ""
+    rightToDisconnectAck: bool = False
+    localInductionComplete: bool = False
+    supplementaryAvailability: str = ""
 
-BASE_DIR = os.path.dirname(__file__)
-DB_PATH = os.path.join(BASE_DIR, 'roster.db')
-EXPORT_PATH = os.path.join(BASE_DIR, 'Roster_Request.xlsx')
 
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-conn.execute('''
+conn.row_factory = sqlite3.Row
+
+conn.execute(
+    """
 CREATE TABLE IF NOT EXISTS profiles (
     id INTEGER PRIMARY KEY,
-    name TEXT, email TEXT UNIQUE, role TEXT DEFAULT 'RN', fte TEXT, shiftPref TEXT,
-    maxNDs TEXT, softLock TEXT, hardLock TEXT, cycle TEXT,
+    name TEXT,
+    email TEXT UNIQUE,
+    role TEXT DEFAULT 'RN',
+    fte TEXT,
+    shiftPref TEXT,
+    maxNDs TEXT,
+    softLock TEXT,
+    hardLock TEXT,
+    cycle TEXT,
+    requests_quota INTEGER DEFAULT 2,
+    preferences_quota INTEGER DEFAULT 2,
+    flexible_work INTEGER DEFAULT 0,
+    swap_willing INTEGER DEFAULT 1,
+    overtime_opt_in INTEGER DEFAULT 0,
+    availability_notes TEXT DEFAULT '',
+    right_to_disconnect_ack INTEGER DEFAULT 0,
+    local_induction_complete INTEGER DEFAULT 0,
+    supplementary_availability TEXT DEFAULT '',
     submitted_at TEXT
 )
-''')
+"""
+)
+
+for column, dtype, default in [
+    ("role", "TEXT", "'RN'"),
+    ("requests_quota", "INTEGER", "2"),
+    ("preferences_quota", "INTEGER", "2"),
+    ("flexible_work", "INTEGER", "0"),
+    ("swap_willing", "INTEGER", "1"),
+    ("overtime_opt_in", "INTEGER", "0"),
+    ("availability_notes", "TEXT", "''"),
+    ("right_to_disconnect_ack", "INTEGER", "0"),
+    ("local_induction_complete", "INTEGER", "0"),
+    ("supplementary_availability", "TEXT", "''"),
+]:
+    try:
+        conn.execute(f"ALTER TABLE profiles ADD COLUMN {column} {dtype} DEFAULT {default}")
+    except sqlite3.OperationalError:
+        pass
 conn.commit()
 
-try:
-    conn.execute("ALTER TABLE profiles ADD COLUMN role TEXT DEFAULT 'RN'")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass
 
-ROLE_ORDER = ['ANUM', 'CNS', 'RN', 'EN', 'GNP']
+def _bool_to_int(value: bool) -> int:
+    return 1 if value else 0
+
+
+def _int_to_bool(value) -> bool:
+    return bool(value)
+
+
+def fetch_profiles() -> List[Dict]:
+    cur = conn.execute(
+        """
+        SELECT id, name, email, role, fte, shiftPref, maxNDs, softLock, hardLock, cycle,
+               requests_quota, preferences_quota, flexible_work, swap_willing, overtime_opt_in,
+               availability_notes, right_to_disconnect_ack, local_induction_complete,
+               supplementary_availability, submitted_at
+        FROM profiles
+    """
+    )
+    profiles = []
+    for row in cur.fetchall():
+        profiles.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "email": row["email"],
+                "role": (row["role"] or "RN").upper(),
+                "fte": row["fte"],
+                "shiftPref": row["shiftPref"],
+                "maxNDs": row["maxNDs"],
+                "softLock": row["softLock"] or "",
+                "hardLock": row["hardLock"] or "",
+                "cycle": row["cycle"],
+                "requestsQuota": row["requests_quota"] or DEFAULT_REQUESTS,
+                "preferencesQuota": row["preferences_quota"] or DEFAULT_PREFERENCES,
+                "flexibleWork": _int_to_bool(row["flexible_work"]),
+                "swapWilling": _int_to_bool(row["swap_willing"]),
+                "overtimeOptIn": _int_to_bool(row["overtime_opt_in"]),
+                "availabilityNotes": row["availability_notes"] or "",
+                "rightToDisconnectAck": _int_to_bool(row["right_to_disconnect_ack"]),
+                "localInductionComplete": _int_to_bool(row["local_induction_complete"]),
+                "supplementaryAvailability": row["supplementary_availability"] or "",
+                "submitted_at": row["submitted_at"],
+            }
+        )
+    return profiles
+
+
+def _role_sort_key(role: str) -> int:
+    try:
+        return ROLE_ORDER.index(role)
+    except ValueError:
+        return len(ROLE_ORDER)
+
+
+def _build_roster_matrix(roster: List[Dict], names: List[str]) -> Dict[str, List[str]]:
+    matrix = {name: ["OFF"] * DAYS for name in names}
+    for day_index, day in enumerate(roster):
+        for shift in SHIFTS:
+            code = SHIFT_CODE_MAP[shift]
+            for name in day[shift]:
+                matrix.setdefault(name, ["OFF"] * DAYS)
+                matrix[name][day_index] = code
+    return matrix
+
+
+def _compute_analytics(matrix: Dict[str, List[str]], profiles: Dict[str, Dict]) -> Tuple[List[Dict], Dict]:
+    analytics = []
+    warnings = []
+    overall_ok = True
+
+    for name, shifts in matrix.items():
+        profile = profiles.get(name)
+        if not profile:
+            continue
+        fte = float(profile["fte"])
+        weekend_count = sum(1 for idx, shift in enumerate(shifts) if idx in WEEKEND_INDEXES and shift != "OFF")
+
+        max_consecutive = 0
+        current_consecutive = 0
+        longest_off = 0
+        current_off = 0
+        rest_breaches = []
+
+        for idx, shift in enumerate(shifts):
+            if shift == "OFF":
+                current_consecutive = 0
+                current_off += 1
+                longest_off = max(longest_off, current_off)
+            else:
+                current_consecutive += 1
+                max_consecutive = max(max_consecutive, current_consecutive)
+                current_off = 0
+                if idx < DAYS - 1:
+                    nxt = shifts[idx + 1]
+                    if nxt != "OFF" and (shift, nxt) in SHIFT_BANNED_PAIRS:
+                        rest_breaches.append((idx, f"{shift}->{nxt}"))
+
+        two_day_break = longest_off >= 2
+        consecutive_ok = max_consecutive <= 6
+        rest_ok = len(rest_breaches) == 0
+        fatigue_score = 0
+        notes = []
+
+        if not consecutive_ok:
+            fatigue_score += 2
+            notes.append("More than six consecutive shifts")
+        if not rest_ok:
+            fatigue_score += len(rest_breaches)
+            notes.append("Turnaround breach (<10h) detected")
+        if weekend_count > 4 and not profile["flexibleWork"]:
+            fatigue_score += weekend_count - 4
+            notes.append("High weekend workload")
+        if fte >= 0.8 and not two_day_break and not profile["flexibleWork"]:
+            fatigue_score += 2
+            notes.append("Missing two consecutive days off")
+
+        compliant = consecutive_ok and rest_ok and (fte < 0.8 or two_day_break or profile["flexibleWork"])
+
+        if not compliant:
+            overall_ok = False
+            warnings.append({"name": name, "issues": notes})
+
+        analytics.append(
+            {
+                "name": name,
+                "role": profile["role"],
+                "shiftPref": profile["shiftPref"],
+                "fte": fte,
+                "weekendCount": weekend_count,
+                "maxConsecutive": max_consecutive,
+                "longestOffStreak": longest_off,
+                "hasTwoDayBreak": two_day_break,
+                "restBreaches": rest_breaches,
+                "fatigueScore": fatigue_score,
+                "flexibleWork": profile["flexibleWork"],
+                "swapWilling": profile["swapWilling"],
+                "overtimeOptIn": profile["overtimeOptIn"],
+                "compliant": compliant,
+                "notes": notes,
+            }
+        )
+
+    analytics.sort(key=lambda item: (_role_sort_key(item["role"]), item["name"]))
+
+    return analytics, {
+        "overall": "pass" if overall_ok else "attention",
+        "warnings": warnings,
+    }
+
 
 @app.post("/submit-profile")
 def submit_profile(profile: Profile):
+    if not profile.rightToDisconnectAck:
+        raise HTTPException(status_code=400, detail="Right to Disconnect acknowledgement is required.")
+
     try:
         conn.execute(
-            "INSERT INTO profiles (name, email, role, fte, shiftPref, maxNDs, softLock, hardLock, cycle, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            """
+            INSERT INTO profiles (
+                name, email, role, fte, shiftPref, maxNDs, softLock, hardLock, cycle,
+                requests_quota, preferences_quota, flexible_work, swap_willing, overtime_opt_in,
+                availability_notes, right_to_disconnect_ack, local_induction_complete,
+                supplementary_availability, submitted_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
             (
                 profile.name,
                 profile.email,
-                profile.role,
+                profile.role.upper(),
                 profile.fte,
                 profile.shiftPref,
                 profile.maxNDs,
                 profile.softLock,
                 profile.hardLock,
                 profile.cycle,
-                datetime.now().isoformat()
-            )
+                profile.requestsQuota,
+                profile.preferencesQuota,
+                _bool_to_int(profile.flexibleWork),
+                _bool_to_int(profile.swapWilling),
+                _bool_to_int(profile.overtimeOptIn),
+                profile.availabilityNotes,
+                _bool_to_int(profile.rightToDisconnectAck),
+                _bool_to_int(profile.localInductionComplete),
+                profile.supplementaryAvailability,
+                datetime.now().isoformat(),
+            ),
         )
         conn.commit()
         return {"status": "success"}
     except sqlite3.IntegrityError:
         raise HTTPException(400, "Email already submitted")
 
+
 @app.get("/profiles")
 def get_profiles():
-    cur = conn.execute("SELECT id, name, email, role, fte, shiftPref, maxNDs, softLock, hardLock, cycle, submitted_at FROM profiles")
-    return [
-        {
-            "id": r[0],
-            "name": r[1],
-            "email": r[2],
-            "role": r[3] or "RN",
-            "fte": r[4],
-            "shiftPref": r[5],
-            "maxNDs": r[6],
-            "softLock": r[7],
-            "hardLock": r[8],
-            "cycle": r[9],
-            "submitted_at": r[10]
-        }
-        for r in cur.fetchall()
-    ]
+    return fetch_profiles()
+
 
 @app.get("/generate-roster")
 def generate_roster():
-    cur = conn.execute("SELECT name, fte, shiftPref, maxNDs, softLock, hardLock FROM profiles")
-    staff = cur.fetchall()
-    if not staff: raise HTTPException(400, "No profiles")
+    profiles = fetch_profiles()
+    if not profiles:
+        raise HTTPException(400, "No profiles")
 
-    DAYS = 14
-    SHIFTS = ['AM', 'PM', 'ND']
-    N = len(staff)
-    S, D, K = range(N), range(DAYS), range(3)
-    MIN_STAFF = 1  # Reduced for pilot
+    staff_names = [p["name"] for p in profiles]
+    name_index = {name: idx for idx, name in enumerate(staff_names)}
 
     prob = LpProblem("Roster", LpMinimize)
-    x = LpVariable.dicts("assign", (S, D, K), cat=LpBinary)
 
-    # COVERAGE
-    for d in D:
-        for k in K:
-            prob += lpSum(x[i][d][k] for i in S) >= MIN_STAFF
+    x = LpVariable.dicts("assign", (range(len(staff_names)), range(DAYS), range(len(SHIFTS))), cat=LpBinary)
 
-    # FTE: FLOOR to integer shifts
-    for i in S:
-        fte = float(staff[i][1])
-        target = int(fte * DAYS)  # e.g., 0.8*14 → 11
-        prob += lpSum(x[i][d][k] for d in D for k in K) >= target
-        prob += lpSum(x[i][d][k] for d in D for k in K) <= target + 1  # Allow ±1
+    for i in range(len(staff_names)):
+        for d in range(DAYS):
+            prob += lpSum(x[i][d][k] for k in range(len(SHIFTS))) <= 1
 
-    # MAX 6/WEEK
-    for i in S:
-        for w in [0, 1]:
-            prob += lpSum(x[i][d][k] for d in range(w*7, w*7+7) for k in K) <= 6
+    for d in range(DAYS):
+        for k in range(len(SHIFTS)):
+            prob += lpSum(x[i][d][k] for i in range(len(staff_names))) >= 1
 
-    # MAX NDs
-    for i in S:
-        prob += lpSum(x[i][d][2] for d in D) <= int(staff[i][3])
+    for i, profile in enumerate(profiles):
+        fte = float(profile["fte"])
+        target = int(round(fte * DAYS))
+        work_total = lpSum(x[i][d][k] for d in range(DAYS) for k in range(len(SHIFTS)))
+        prob += work_total >= max(target - 1, 0)
+        prob += work_total <= target + 1
 
-    # 8h REST
-    for i in S:
-        for d in range(DAYS-1):
-            for k1 in K:
-                for k2 in K:
-                    if (k1 == 0 and k2 == 2) or (k1 == 2 and k2 == 0): continue
-                    prob += x[i][d][k1] + x[i][d+1][k2] <= 1
+    for i, profile in enumerate(profiles):
+        for start in range(DAYS - 6):
+            prob += lpSum(x[i][d][k] for d in range(start, start + 7) for k in range(len(SHIFTS))) <= 6
 
-    # HARD LOCK
-    for i in S:
-        if staff[i][5]:
+        max_nds = int(profile["maxNDs"])
+        prob += lpSum(x[i][d][2] for d in range(DAYS)) <= max_nds
+
+        soft_lock = profile["softLock"]
+        hard_lock = profile["hardLock"]
+
+        if hard_lock:
             try:
-                day = int(staff[i][5].split('-')[-1]) - 1
+                day = int(hard_lock.split("-")[-1]) - 1
                 if 0 <= day < DAYS:
-                    prob += lpSum(x[i][day][k] for k in K) == 0
-            except: pass
+                    prob += lpSum(x[i][day][k] for k in range(len(SHIFTS))) == 0
+            except ValueError:
+                pass
 
-    # SOFT LOCK
-    soft_penalty = 0
-    for i in S:
-        if staff[i][4]:
+        if soft_lock:
             try:
-                day = int(staff[i][4].split('-')[-1]) - 1
+                day = int(soft_lock.split("-")[-1]) - 1
                 if 0 <= day < DAYS:
-                    soft_penalty += lpSum(x[i][day][k] for k in K) * 100
-            except: pass
-    prob += soft_penalty
+                    prob += lpSum(x[i][day][k] for k in range(len(SHIFTS))) <= 0
+            except ValueError:
+                pass
 
-    # PREFERENCE
-    pref_map = {'AM': 0, 'PM': 1, 'ND': 2}
-    prob += lpSum(x[i][d][k] for i in S for d in D for k in K if k != pref_map[staff[i][2]])
+        for d in range(DAYS - 1):
+            for k1, shift1 in enumerate(SHIFTS):
+                for k2, shift2 in enumerate(SHIFTS):
+                    if (SHIFT_CODE_MAP[shift1], SHIFT_CODE_MAP[shift2]) in SHIFT_BANNED_PAIRS:
+                        prob += x[i][d][k1] + x[i][d + 1][k2] <= 1
+
+    pref_penalty = lpSum(
+        x[name_index[profile["name"]]][d][k]
+        for profile in profiles
+        for d in range(DAYS)
+        for k in range(len(SHIFTS))
+        if SHIFTS[k] != profile["shiftPref"]
+    )
+    prob += pref_penalty
 
     prob.solve()
     if prob.status != 1:
-        return {"status": "infeasible", "message": "Try reducing MIN_STAFF or adjusting FTE"}
+        return {"status": "infeasible", "message": "No feasible roster with current constraints"}
 
-    roster = []
-    for d in D:
-        day = {"day": d+1, "AM": [], "PM": [], "ND": []}
-        for i in S:
-            for k in K:
+    roster: List[Dict] = []
+    for d in range(DAYS):
+        day_entry = {"day": d + 1, "AM": [], "PM": [], "ND": []}
+        for i, profile in enumerate(profiles):
+            for k, shift in enumerate(SHIFTS):
                 if value(x[i][d][k]) == 1:
-                    day[SHIFTS[k]].append(staff[i][0])
-        roster.append(day)
+                    day_entry[shift].append(profile["name"])
+        roster.append(day_entry)
 
-    return {"status": "valid", "roster": roster}
+    matrix = _build_roster_matrix(roster, staff_names)
+    profile_map = {p["name"]: p for p in profiles}
+    analytics, compliance = _compute_analytics(matrix, profile_map)
+
+    return {
+        "status": "valid",
+        "roster": roster,
+        "analytics": analytics,
+        "compliance": compliance,
+    }
 
 
 @app.get("/export-excel")
@@ -181,19 +414,14 @@ def export_excel():
     if data.get("status") != "valid":
         raise HTTPException(400, data.get("message", "Roster not compliant"))
 
-    cur = conn.execute("SELECT name, COALESCE(role, 'RN') FROM profiles")
-    staff_info = {row[0]: (row[1] or "RN").upper() for row in cur.fetchall()}
+    roster = data["roster"]
+    analytics = data.get("analytics", [])
+    profiles = fetch_profiles()
+    profile_map = {p["name"]: p for p in profiles}
 
-    roster_map = {name: [""] * 14 for name in staff_info.keys()}
-    for day_index, day in enumerate(data["roster"]):
-        for code, names in (("AM", day["AM"]), ("PM", day["PM"]), ("ND", day["ND"])):
-            for name in names:
-                if name not in roster_map:
-                    roster_map[name] = [""] * 14
-                    staff_info[name] = "RN"
-                roster_map[name][day_index] = code
+    staff_names = sorted(profile_map.keys(), key=lambda name: (_role_sort_key(profile_map[name]["role"]), name))
+    matrix = _build_roster_matrix(roster, staff_names)
 
-    code_map = {"AM": "D", "PM": "E", "ND": "N"}
     shift_fill = {
         "D": PatternFill("solid", fgColor="FFFFFF"),
         "E": PatternFill("solid", fgColor="FFED9E"),
@@ -201,126 +429,149 @@ def export_excel():
         "OFF": PatternFill("solid", fgColor="E9ECEF"),
     }
     thin = Side(border_style="thin", color="D0D0D0")
+    header_band = PatternFill("solid", fgColor="BBD0F7")
 
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "Roster Request"
+    sheet.title = "Published Roster"
 
     sheet.merge_cells("A1:P1")
-    sheet["A1"] = "SRF Roster Request"
-    sheet["A1"].font = Font(bold=True, size=16)
+    sheet["A1"] = "Published Roster – Ward A – Fortnight"
+    sheet["A1"].font = Font(bold=True, size=16, color="FFFFFF")
     sheet["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    sheet["A1"].fill = PatternFill("solid", fgColor="4B0082")
 
     sheet.merge_cells("A2:M2")
-    sheet["A2"] = "KEY: E = Evening shift, D = Day Shift, N = Night duty, OFF = Day Off, R = Request, P = Preference"
+    sheet["A2"] = "Shift Codes: D = Day (0700–1530), E = Evening (1300–2130), N = Night (2100–0730), OFF = Day Off"
     sheet["A2"].alignment = Alignment(horizontal="left")
     sheet["A2"].font = Font(size=11)
 
     sheet.merge_cells("N2:P2")
-    sheet["N2"] = "To be taken down on: 19/11/25"
+    sheet["N2"] = f"Generated: {datetime.now().strftime('%d %b %Y %H:%M')}"
     sheet["N2"].alignment = Alignment(horizontal="center")
     sheet["N2"].font = Font(bold=True, color="FFFFFF")
-    sheet["N2"].fill = PatternFill("solid", fgColor="6AA84F")
+    sheet["N2"].fill = PatternFill("solid", fgColor="6A1B9A")
 
     sheet.merge_cells("A3:P3")
-    sheet["A3"] = "Reminder: 2 requests and 2 preferences each fortnight."
+    sheet["A3"] = "All requests resolved. Retain for seven (7) years."
     sheet["A3"].alignment = Alignment(horizontal="center")
     sheet["A3"].font = Font(italic=True, size=11)
 
-    header_band = PatternFill("solid", fgColor="BBD0F7")
     sheet["A5"] = "Role"
-    sheet["A5"].font = Font(bold=True)
-    sheet["A5"].alignment = Alignment(horizontal="center", vertical="center")
-    sheet.column_dimensions["A"].width = 10
-    sheet["A5"].fill = header_band
-
     sheet["B5"] = "Name"
-    sheet["B5"].font = Font(bold=True)
-    sheet["B5"].alignment = Alignment(horizontal="center", vertical="center")
+    sheet["C5"] = "Compliance"
+    for label in ("A5", "B5", "C5"):
+        cell = sheet[label]
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.fill = header_band
+
+    sheet.column_dimensions["A"].width = 10
     sheet.column_dimensions["B"].width = 26
-    sheet["B5"].fill = header_band
+    sheet.column_dimensions["C"].width = 32
 
-    sheet.merge_cells("C4:I4")
-    sheet["C4"] = "WEEK 1"
-    sheet["C4"].font = Font(bold=True)
-    sheet["C4"].alignment = Alignment(horizontal="center")
-    for col in "CDEFGHI":
-        sheet[f"{col}4"].fill = header_band
+    sheet.merge_cells("D4:J4")
+    sheet["D4"] = "WEEK 1"
+    sheet["D4"].font = Font(bold=True, color="FFFFFF")
+    sheet["D4"].alignment = Alignment(horizontal="center")
+    sheet["D4"].fill = PatternFill("solid", fgColor="6C757D")
 
-    sheet.merge_cells("J4:P4")
-    sheet["J4"] = "WEEK 2"
-    sheet["J4"].font = Font(bold=True)
-    sheet["J4"].alignment = Alignment(horizontal="center")
-    for col in "JKLMNOP":
-        sheet[f"{col}4"].fill = header_band
+    sheet.merge_cells("K4:Q4")
+    sheet["K4"] = "WEEK 2"
+    sheet["K4"].font = Font(bold=True, color="FFFFFF")
+    sheet["K4"].alignment = Alignment(horizontal="center")
+    sheet["K4"].fill = PatternFill("solid", fgColor="6C757D")
 
-    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    for idx, day_name in enumerate(days):
-        col = chr(ord("C") + idx)
-        sheet[f"{col}5"] = day_name
+    days_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    for idx, label in enumerate(days_labels):
+        col = chr(ord("D") + idx)
+        sheet[f"{col}5"] = label
         sheet[f"{col}5"].font = Font(bold=True)
         sheet[f"{col}5"].alignment = Alignment(horizontal="center")
+        sheet[f"{col}5"].fill = header_band
         sheet.column_dimensions[col].width = 11
 
-        col_week2 = chr(ord("J") + idx)
-        sheet[f"{col_week2}5"] = day_name
+        col_week2 = chr(ord("K") + idx)
+        sheet[f"{col_week2}5"] = label
         sheet[f"{col_week2}5"].font = Font(bold=True)
         sheet[f"{col_week2}5"].alignment = Alignment(horizontal="center")
+        sheet[f"{col_week2}5"].fill = header_band
         sheet.column_dimensions[col_week2].width = 11
 
     start_row = 6
-    def sort_key(item):
-        name = item[0]
-        role = staff_info.get(name, "RN")
-        try:
-            order_index = ROLE_ORDER.index(role)
-        except ValueError:
-            order_index = len(ROLE_ORDER)
-        return (order_index, role, name)
+    for row_idx, name in enumerate(staff_names, start=start_row):
+        profile = profile_map[name]
+        row = matrix[name]
+        analytics_entry = next((a for a in analytics if a["name"] == name), None)
 
-    for row_index, (name, assignments) in enumerate(sorted(roster_map.items(), key=sort_key), start=start_row):
-        role = staff_info.get(name, "RN")
-        sheet[f"A{row_index}"] = role
-        sheet[f"A{row_index}"].alignment = Alignment(horizontal="center", vertical="center")
-        sheet[f"A{row_index}"].border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        sheet[f"A{row_idx}"] = profile["role"]
+        sheet[f"A{row_idx}"].alignment = Alignment(horizontal="center", vertical="center")
+        sheet[f"A{row_idx}"].border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-        sheet[f"B{row_index}"] = name
-        sheet[f"B{row_index}"].alignment = Alignment(vertical="center")
-        sheet[f"B{row_index}"].border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        sheet[f"B{row_idx}"] = name
+        sheet[f"B{row_idx}"].alignment = Alignment(vertical="center")
+        sheet[f"B{row_idx}"].border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-        for day_index in range(14):
-            col_index = day_index if day_index < 7 else day_index - 7
-            col_letter = chr(ord("C") + col_index) if day_index < 7 else chr(ord("J") + col_index)
-            cell = sheet[f"{col_letter}{row_index}"]
-            value = assignments[day_index] or ""
-            if not value:
-                value = "OFF"
-            else:
-                value = code_map.get(value, value)
-            cell.value = value
+        compliance_text = "Compliant"
+        if analytics_entry and not analytics_entry["compliant"]:
+            compliance_text = "; ".join(analytics_entry["notes"])
+        sheet[f"C{row_idx}"] = compliance_text or "Compliant"
+        sheet[f"C{row_idx}"].alignment = Alignment(vertical="center")
+        sheet[f"C{row_idx}"].border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        for day_idx, shift in enumerate(row):
+            col_letter = chr(ord("D") + day_idx) if day_idx < 7 else chr(ord("K") + (day_idx - 7))
+            cell = sheet[f"{col_letter}{row_idx}"]
+            cell.value = shift
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
-            fill = shift_fill.get(value)
-            if fill:
-                cell.fill = fill
-            if value == "N":
+            fill = shift_fill.get(shift, shift_fill["OFF"])
+            cell.fill = fill
+            if shift == "N":
                 cell.font = Font(color="FFFFFF", bold=True)
-            elif value in {"D", "E"}:
+            elif shift != "OFF":
                 cell.font = Font(bold=True)
 
-    for col in "CDEFGHIJKLMNOP":
-        sheet[f"{col}5"].fill = header_band
+    sheet_compliance = workbook.create_sheet("Compliance Summary")
+    sheet_compliance.append(
+        [
+            "Name",
+            "Role",
+            "FTE",
+            "Weekend Shifts",
+            "Max Consecutive",
+            "Longest Off Streak",
+            "Two-Day Break",
+            "Rest Breaches",
+            "Fatigue Score",
+            "Notes",
+        ]
+    )
 
-    sheet_row_max = sheet.max_row
-    for row in range(4, sheet_row_max + 1):
-        for col in range(ord("A"), ord("P") + 1):
-            cell = sheet[f"{chr(col)}{row}"]
-            if not cell.border:
-                cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    for cell in sheet_compliance[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_band
+        cell.alignment = Alignment(horizontal="center")
+
+    for entry in analytics:
+        sheet_compliance.append(
+            [
+                entry["name"],
+                entry["role"],
+                entry["fte"],
+                entry["weekendCount"],
+                entry["maxConsecutive"],
+                entry["longestOffStreak"],
+                "Yes" if entry["hasTwoDayBreak"] else "No",
+                ", ".join(f"{idx + 1}:{label}" for idx, label in entry["restBreaches"]) or "-",
+                entry["fatigueScore"],
+                "; ".join(entry["notes"]) or "-",
+            ]
+        )
 
     workbook.save(EXPORT_PATH)
     return FileResponse(
         EXPORT_PATH,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename="Roster_Request.xlsx"
+        filename=EXPORT_FILENAME,
     )
