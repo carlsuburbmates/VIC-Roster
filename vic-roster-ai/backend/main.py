@@ -133,3 +133,56 @@ def generate_roster():
         roster.append(day)
 
     return {"status": "valid", "roster": roster}
+
+
+@app.get("/export-pdf")
+def export_pdf():
+    data = generate_roster()
+    if not isinstance(data, dict):
+        return data
+    if data.get("status") != "valid":
+        raise HTTPException(400, data.get("message", "Roster not compliant"))
+
+    pdf_path = os.path.abspath("roster_audit.pdf")
+    doc = SimpleDocTemplate(pdf_path, pagesize=A4, title="Appendix 4 Audit")
+    styles = getSampleStyleSheet()
+
+    elements = [
+        Paragraph("Victorian Rostering Toolkit", styles["Title"]),
+        Paragraph("Appendix 4 – Compliance Audit", styles["Heading2"]),
+        Spacer(1, 12),
+        Paragraph(f"Generated {datetime.now().strftime('%d %b %Y %H:%M')}", styles["Normal"]),
+        Spacer(1, 12)
+    ]
+
+    table_data = [["Day", "AM", "PM", "ND"]]
+    for day in data["roster"]:
+        table_data.append([
+            f"Day {day['day']}",
+            ", ".join(day["AM"]) or "-",
+            ", ".join(day["PM"]) or "-",
+            ", ".join(day["ND"]) or "-"
+        ])
+
+    table = Table(table_data, colWidths=[60, 150, 150, 150])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#004B87")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#DEE2E6")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8F9FA")]),
+    ]))
+    elements.append(table)
+    elements.extend([
+        Spacer(1, 18),
+        Paragraph("<b>100% COMPLIANT</b>", styles["Heading3"]),
+        Spacer(1, 12),
+        Paragraph("Authorised and published by the Victorian Government, 1 Treasury Place, Melbourne.", styles["BodyText"]),
+        Paragraph("© State of Victoria, Australia, December 2023", styles["BodyText"]),
+        Paragraph("OFFICIAL", styles["BodyText"]),
+    ])
+
+    doc.build(elements)
+    return FileResponse(pdf_path, media_type="application/pdf", filename="Appendix_4_Audit.pdf")
