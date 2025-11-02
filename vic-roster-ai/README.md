@@ -45,6 +45,7 @@ A small two-tier rostering prototype with a React/Vite frontend and FastAPI back
 - **POST `/submit-profile`** — Submit a staff profile
 - **GET `/profiles`** — Retrieve all staff profiles
 - **GET `/generate-roster`** — Generate a roster using the MILP solver
+- **GET `/export-excel`** — Export roster to Excel (SRF-compliant format)
 
 ## Project Structure
 
@@ -73,6 +74,27 @@ A small two-tier rostering prototype with a React/Vite frontend and FastAPI back
 3. Use the NUM dashboard to generate and view the roster
 4. Check the backend logs for any errors
 
+## Features
+
+### Excel Export (SRF-Compliant)
+
+The application generates **Austin Health SRF (Staffing Request Form) compliant rosters** in XLSX format.
+
+**To export a roster:**
+1. Submit staff profiles via the form
+2. Generate roster by clicking "Run App.4 Audit"
+3. Click "Export SRF Roster Excel" button
+4. File downloads as `Roster_Request.xlsx`
+
+**Export includes:**
+- 14-day roster with shift assignments (D/E/N codes)
+- Color-coded shifts for visual clarity
+- Role-based staff sorting
+- Compliance summary with fairness/fatigue metrics
+- Document ID, timestamp, and retention notice
+
+**For detailed documentation, see:** [`EXCEL_EXPORT_GUIDE.md`](../../EXCEL_EXPORT_GUIDE.md)
+
 ## Scripts
 
 ### Frontend (`frontend/package.json`)
@@ -85,3 +107,18 @@ A small two-tier rostering prototype with a React/Vite frontend and FastAPI back
 ### Backend
 
 Use standard `uvicorn` commands; see [Uvicorn documentation](https://www.uvicorn.org/).
+
+## Verification
+
+Run the included verification script to validate the Excel export implementation:
+
+```bash
+python3 verify-excel-implementation.py
+```
+
+Expected output:
+```
+✓ Successes: 22
+✓ ALL CHECKS PASSED - Excel export implementation is complete!
+```
+
